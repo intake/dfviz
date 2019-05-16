@@ -14,7 +14,10 @@ plot_allows = {
     'area': ['x', 'stacked'],
     'scatter': ['x', 'color', 'marker', 'colorbar', 'cmap', 'size']
 }
-field_names = ['x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns']
+all_names = set(sum(plot_allows.values(), []))
+field_names = {'x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns'}
+option_names = [n for n in all_names if n not in field_names] + [
+    'color', 'alpha', 'legend']
 
 
 class SigSlot(object):
@@ -126,16 +129,19 @@ class ControlWidget(SigSlot):
 
     @property
     def kwargs(self):
-        kwargs = self.fields.kwargs
-        kwargs.update(self.style.kwargs)
+        kwargs = self.style.kwargs
+        kwargs.update({k: v for k, v in self.fields.kwargs.items()
+                       if v is not None})
         return kwargs
 
 
-def make_option_widget(name, columns=[], optional=False):
+def make_option_widget(name, columns=[], optional=False, style=False):
     if name in ['multi_y', 'columns']:
         if name == 'multi_y':
             name = 'y'
         return pn.widgets.MultiSelect(options=columns, name=name)
+    if name == 'color' and style:
+        return pn.widgets.ColorPicker(name='color', value="#FFFFFF")
     if name in ['x', 'y', 'z', 'by', 'groupby', 'color']:
         options = ([None] + columns) if optional else columns
         return pn.widgets.Select(options=options, name=name)
@@ -167,8 +173,8 @@ class StylePane(SigSlot):
 
     def setup(self, method):
         allowed = ['alpha', 'legend'] + plot_allows[method]
-        ws = [make_option_widget(nreq) for nreq in allowed
-              if nreq not in field_names]
+        ws = [make_option_widget(nreq, style=True) for nreq in allowed
+              if nreq in option_names]
         self.panel[0] = pn.Column(*ws, name='Style')
 
     @property
