@@ -18,7 +18,7 @@ field_names = ['x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns']
 
 
 class SigSlot(object):
-    """Signal-slot mixin, for Panel even passing"""
+    """Signal-slot mixin, for Panel event passing"""
 
     def __init__(self):
         self._sigs = {}
@@ -53,7 +53,8 @@ class SigSlot(object):
         """Associate call back with given event
 
         The callback must be a function which takes the "new" value of the
-        watched attribute as the only parameter
+        watched attribute as the only parameter. If the callback return False,
+        this cancels any further processing of the given event.
         """
         self._sigs[name]['callbacks'].append(callback)
 
@@ -62,7 +63,8 @@ class SigSlot(object):
         print(wn, event)
         if wn in self._map and self._map[wn] in self._sigs:
             for callback in self._sigs[self._map[wn]]['callbacks']:
-                callback(event.new)
+                if callback(event.new) is False:
+                    break
 
     def show(self):
         self.panel.show()
@@ -155,7 +157,7 @@ def make_option_widget(name, columns=[], optional=False):
                                  options=list(palettes.all_palettes))
     if name == 'marker':
         return pn.widgets.Select(name='marker', value='o',
-                                 options=list('.ov^<>*+xDd|_X'))
+                                 options=list('s.ov^<>*+x'))
 
 
 class StylePane(SigSlot):
