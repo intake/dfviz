@@ -6,18 +6,22 @@ plot_requires = {
     'bar': ['multi_y'],
     'hist': ['multi_y'],
     'area': ['multi_y'],
-    'scatter': ['y']
+    'scatter': ['y'],
+    'table': ['columns']
 }
 plot_allows = {
-    'bar': ['x', 'by', 'groupby', 'stacked'],
+    'bar': ['x', 'by', 'groupby', 'stacked', 'logy'],
     'hist': ['by'],
-    'area': ['x', 'stacked'],
-    'scatter': ['x', 'color', 'marker', 'colorbar', 'cmap', 'size']
+    'area': ['x', 'stacked', 'logy'],
+    'scatter': ['x', 'color', 'marker', 'colorbar', 'cmap', 'size', 'logx',
+                'logy'],
+    'table': []
 }
 all_names = set(sum(plot_allows.values(), []))
-field_names = {'x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns'}
+field_names = {'x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns',
+               'size'}
 option_names = [n for n in all_names if n not in field_names] + [
-    'color', 'alpha', 'legend']
+    'color', 'alpha', 'legend', 'size']
 
 
 class SigSlot(object):
@@ -35,17 +39,19 @@ class SigSlot(object):
 
         Parameters
         ----------
-        widget : pn.layout.Panel
-            Widget to watch
+        widget : pn.layout.Panel or None
+            Widget to watch. If None, an anonymous signal not associated with
+            any widget.
         name : str
             Name of this event
         thing : str
             Attribute of the given widget to watch
         """
         self._sigs[name] = {'widget': widget, 'callbacks': [], 'thing': thing}
-        wn = "-".join([widget.name, thing])
+        wn = "-".join([widget.name if widget is not None else "none", thing])
         self._map[wn] = name
-        widget.param.watch(self._signal, thing, onlychanged=True)
+        if widget is not None:
+            widget.param.watch(self._signal, thing, onlychanged=True)
 
     @property
     def signals(self):
@@ -63,11 +69,13 @@ class SigSlot(object):
 
     def _signal(self, event):
         wn = "-".join([event.obj.name, event.name])
-        print(wn, event)
         if wn in self._map and self._map[wn] in self._sigs:
-            for callback in self._sigs[self._map[wn]]['callbacks']:
-                if callback(event.new) is False:
-                    break
+            self._emit(self._map[wn], event.new)
+
+    def _emit(self, sig, value=None):
+        for callback in self._sigs[sig]['callbacks']:
+            if callback(value) is False:
+                break
 
     def show(self):
         self.panel.show()
@@ -122,6 +130,7 @@ class ControlWidget(SigSlot):
         self.panel = pn.Tabs(self.sample.panel, self.fields.panel,
                              self.style.panel,
                              background=(230, 230, 230))
+        self.set_method('bar')
 
     def set_method(self, method):
         self.fields.setup(method)
@@ -142,11 +151,14 @@ def make_option_widget(name, columns=[], optional=False, style=False):
         return pn.widgets.MultiSelect(options=columns, name=name)
     if name == 'color' and style:
         return pn.widgets.ColorPicker(name='color', value="#FFFFFF")
-    if name in ['x', 'y', 'z', 'by', 'groupby', 'color']:
+    if name == 'size' and style:
+        return pn.widgets.IntSlider(name='size', start=3, end=65, value=12,
+                                    step=2)
+    if name in ['x', 'y', 'z', 'by', 'groupby', 'color', 'size']:
         options = ([None] + columns) if optional else columns
         return pn.widgets.Select(options=options, name=name)
-    if name in ['stacked', 'colorbar']:
-        return pn.widgets.Checkbox(name=name)
+    if name in ['stacked', 'colorbar', 'logx', 'logy']:
+        return pn.widgets.Checkbox(name=name, value=False)
     if name == 'legend':
         return pn.widgets.Select(
             name='legend', value='right',
@@ -155,9 +167,6 @@ def make_option_widget(name, columns=[], optional=False, style=False):
     if name == 'alpha':
         return pn.widgets.FloatSlider(name='alpha', start=0, end=1, value=0.9,
                                       step=0.05)
-    if name == 'size':
-        return pn.widgets.IntSlider(name='size', start=3, end=65, value=12,
-                                    step=2)
     if name == 'cmap':
         return pn.widgets.Select(name='cmap', value='Viridis',
                                  options=list(palettes.all_palettes))
@@ -188,7 +197,6 @@ class FieldsPane(SigSlot):
         super().__init__()
         self.columns = columns
         self.panel = pn.Column(name='Fields')
-        self.setup()
 
     def setup(self, method='bar'):
         self.panel.clear()
@@ -248,6 +256,7 @@ class SamplePane(SigSlot):
 
 if __name__ == '__main__':
     import pandas as pd
+    import dask.dataframe as dd
     import numpy as np
     df = pd.DataFrame({
         'a': range(100),
@@ -255,5 +264,6 @@ if __name__ == '__main__':
         'c': np.random.randn(100),
         'd': np.random.choice(['A', 'B', 'C'], size=100)
     })
-    widget = ControlWidget(df)
+    widget = MainWidget(df)
+    #widget = MainWidget(dd.from_pandas(df, 2).persist())
     widget.show()
