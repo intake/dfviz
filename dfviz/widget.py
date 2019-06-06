@@ -307,6 +307,7 @@ class SamplePane(SigSlot):
                      lambda x: setattr(self.how, 'disabled', not x) or
                      setattr(self.par, 'disabled', not x))
         self.connect('how_chosen', self.make_sample_pars)
+        self.changed = False
 
         # set default value
         self.sample.value = npartitions > 1
@@ -327,7 +328,7 @@ class SamplePane(SigSlot):
         if self.how.value == 'Partition':
             return data.get_partition(self.par.value)
         if self.how.value == 'Random':
-            return data.sample(fraction=self.par.value / 100)
+            return data.sample(frac=self.par.value / 100)
 
     @property
     def kwargs(self):
@@ -335,7 +336,7 @@ class SamplePane(SigSlot):
 
     def make_sample_pars(self, manner):
         opts = {'Random': ('percent', [10, 1, 0.1]),
-                'Partition': list(range(self.npartitions)),
+                'Partition': ('#', list(range(self.npartitions))),
                 'Head': ('rows', [10, 100, 1000, 10000]),
                 'Tail': ('rows', [10, 100, 1000, 10000])}[manner]
         self.par.name = opts[0]
@@ -357,12 +358,13 @@ if __name__ == '__main__':
     import pandas as pd
     import dask.dataframe as dd
     import numpy as np
+    N = 1000
     df = pd.DataFrame({
-        'a': range(100),
-        'b': np.random.rand(100),
-        'c': np.random.randn(100),
-        'd': np.random.choice(['A', 'B', 'C'], size=100)
+        'a': range(N),
+        'b': np.random.rand(N),
+        'c': np.random.randn(N),
+        'd': np.random.choice(['A', 'B', 'C'], size=N)
     })
-    widget = MainWidget(df)
-    #widget = MainWidget(dd.from_pandas(df, 2).persist())
+    #widget = MainWidget(df)
+    widget = MainWidget(dd.from_pandas(df, 2))
     widget.show()
