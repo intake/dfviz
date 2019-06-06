@@ -1,24 +1,39 @@
+import yaml
 from bokeh import palettes
 import panel as pn
 from hvplot import hvPlot
 
 plot_requires = {
-    'bar': ['multi_y'],
-    'hist': ['multi_y'],
     'area': ['multi_y'],
+    'bar': ['multi_y'],
+    'box': ['multi_y'],
+    'bivariate': ['x', 'y'],
+    'heatmap': ['x', 'y', 'C'],
+    'hexbin': ['x', 'y'],
+    'hist': ['multi_y'],
+    'line': ['multi_y', 'x'],
+    'kde': ['multi_y'],
     'scatter': ['y'],
-    'table': ['columns']
+    'table': ['columns'],
+    'violin': ['y']
 }
 plot_allows = {
-    'bar': ['x', 'by', 'groupby', 'stacked', 'logy'],
-    'hist': ['by'],
     'area': ['x', 'stacked', 'logy'],
+    'bar': ['x', 'by', 'groupby', 'stacked', 'logy'],
+    'box': ['by', 'invert'],
+    'bivariate': ['colorbar'],
+    'heatmap': ['colorbar'],
+    'hexbin': ['colorbar'],
+    'hist': ['by', 'bins'],
+    'kde': ['by'],
+    'line': ['logx', 'logy'],
     'scatter': ['x', 'color', 'marker', 'colorbar', 'cmap', 'size', 'logx',
                 'logy'],
-    'table': []
+    'table': [],
+    'violin': ['by', 'groupby']
 }
 all_names = set(sum(plot_allows.values(), []))
-field_names = {'x', 'y', 'color', 'multi_y', 'by', 'groupby', 'columns',
+field_names = {'x', 'y', 'C', 'color', 'multi_y', 'by', 'groupby', 'columns',
                'size'}
 option_names = [n for n in all_names if n not in field_names] + [
     'color', 'alpha', 'legend', 'size']
@@ -98,21 +113,18 @@ class MainWidget(SigSlot):
         self.data = data
         self.dasky = hasattr(data, 'dask')
         self.control = ControlWidget(self.data)
-        self.output = pn.Row(pn.Spacer())
+        self.kwtext = pn.pane.Str(name='YAML', value="")
+        self.output = pn.Tabs(pn.Spacer(name='Plot'), self.kwtext)
 
         self.method = pn.widgets.Select(
             name='Plot Type', options=list(plot_requires))
-        self.autoplot = pn.widgets.Checkbox(name='Auto Plot', value=True)
-        self.plot = pn.widgets.Button(name='Plot', disabled=True)
-        plotcont = pn.Row(self.method, self.autoplot, self.plot,
+        self.plot = pn.widgets.Button(name='Plot')
+        plotcont = pn.Row(self.method, self.plot,
                           pn.layout.HSpacer())
 
-        self._register(self.autoplot, 'autoplot_toggled')
         self._register(self.plot, 'plot_clicked', 'clicks')
         self._register(self.method, 'method_changed')
 
-        self.connect('autoplot_toggled',
-                     lambda x: setattr(self.plot, 'disabled', x))
         self.connect('plot_clicked', self.draw)
         self.connect('method_changed', self.control.set_method)
 
@@ -121,9 +133,13 @@ class MainWidget(SigSlot):
     def draw(self, *args):
         kwargs = self.control.kwargs
         kwargs['kind'] = self.method.value
-        print(kwargs)
+        self.kwtext.object = pretty_describe(kwargs)
         self._plot = hvPlot(self.data)(**kwargs)
-        self.output[0] = pn.pane.HoloViews(self._plot)
+        self.output[0] = pn.pane.HoloViews(self._plot, name='Plot')
+        fig = list(self.output[0]._models.values())[0][0]
+        xrange = fig.x_range.start, fig.x_range.end
+        yrange = fig.y_range.start, fig.y_range.end
+        self.control.style.set_ranges(xrange, yrange)
 
 
 class ControlWidget(SigSlot):
@@ -164,10 +180,10 @@ def make_option_widget(name, columns=[], optional=False, style=False):
     if name == 'size' and style:
         return pn.widgets.IntSlider(name='size', start=3, end=65, value=12,
                                     step=2)
-    if name in ['x', 'y', 'z', 'by', 'groupby', 'color', 'size']:
+    if name in ['x', 'y', 'z', 'by', 'groupby', 'color', 'size', 'C']:
         options = ([None] + columns) if optional else columns
         return pn.widgets.Select(options=options, name=name)
-    if name in ['stacked', 'colorbar', 'logx', 'logy']:
+    if name in ['stacked', 'colorbar', 'logx', 'logy', 'invert']:
         return pn.widgets.Checkbox(name=name, value=False)
     if name == 'legend':
         return pn.widgets.Select(
@@ -183,22 +199,60 @@ def make_option_widget(name, columns=[], optional=False, style=False):
     if name == 'marker':
         return pn.widgets.Select(name='marker', value='o',
                                  options=list('s.ov^<>*+x'))
+    if name == 'bins':
+        return pn.widgets.IntSlider(name='bins', value=20, start=2, end=100)
 
 
 class StylePane(SigSlot):
 
     def __init__(self):
-        self.panel = pn.Column(pn.Spacer(), name='Style')
+        self.panel = pn.Row(pn.Spacer(), pn.Spacer(), name='Style')
 
     def setup(self, method):
         allowed = ['alpha', 'legend'] + plot_allows[method]
         ws = [make_option_widget(nreq, style=True) for nreq in allowed
               if nreq in option_names]
         self.panel[0] = pn.Column(*ws, name='Style')
+        self.panel[1] = pn.Column(
+            pn.widgets.IntSlider(name='width', value=600, start=100, end=1200),
+            pn.widgets.IntSlider(name='height', value=400, start=100, end=1200)
+        )
+
+    def set_ranges(self, xrange=None, yrange=None):
+        while True:
+            try:
+                self.panel[1].pop(2)
+            except IndexError:
+                break
+        if xrange and xrange[0] is not None and xrange[1] is not None:
+            self.panel[1].append(
+                pn.widgets.FloatSlider(name='x min', start=xrange[0],
+                                       end=xrange[1], value=xrange[0]))
+            self.panel[1].append(
+                pn.widgets.FloatSlider(name='x max', start=xrange[0],
+                                       end=xrange[1], value=xrange[1]))
+        if yrange and yrange[0] is not None and yrange[1] is not None:
+            self.panel[1].append(
+                pn.widgets.FloatSlider(name='y min', start=yrange[0],
+                                       end=yrange[1], value=yrange[0]))
+            self.panel[1].append(
+                pn.widgets.FloatSlider(name='y max', start=yrange[0],
+                                       end=yrange[1], value=yrange[1]))
 
     @property
     def kwargs(self):
-        return {p.name: p.value for p in self.panel[0]}
+        kw = {p.name: p.value for p in self.panel[0]}
+        kw.update({p.name: p.value for p in self.panel[1][:2]})
+        xlim = [None, None]
+        ylim = [None, None]
+        for w in self.panel[1][2:]:
+            if 'x ' in w.name:
+                xlim['max' in w.name] = float(w.value)
+                kw['xlim'] = tuple(xlim)
+            else:
+                ylim['max' in w.name] = float(w.value)
+                kw['ylim'] = tuple(ylim)
+        return kw
 
 
 class FieldsPane(SigSlot):
@@ -262,6 +316,17 @@ class SamplePane(SigSlot):
                 'Tail': ('rows', [10, 100, 1000, 10000])}[manner]
         self.par.name = opts[0]
         self.par.options = opts[1]
+
+
+def pretty_describe(object, nestedness=0, indent=2):
+    """Maintain dict ordering - but make string version prettier"""
+    if not isinstance(object, dict):
+        return str(object)
+    sep = f'\n{" " * nestedness * indent}'
+    out = sep.join((f'{k}: {pretty_describe(v, nestedness + 1)}' for k, v in object.items()))
+    if nestedness > 0 and out:
+        return f'{sep}{out}'
+    return out
 
 
 if __name__ == '__main__':
