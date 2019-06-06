@@ -134,7 +134,8 @@ class MainWidget(SigSlot):
         kwargs = self.control.kwargs
         kwargs['kind'] = self.method.value
         self.kwtext.object = pretty_describe(kwargs)
-        self._plot = hvPlot(self.data)(**kwargs)
+        data = self.control.sample.sample_data(self.data)
+        self._plot = hvPlot(data)(**kwargs)
         self.output[0] = pn.pane.HoloViews(self._plot, name='Plot')
         fig = list(self.output[0]._models.values())[0][0]
         xrange = fig.x_range.start, fig.x_range.end
@@ -167,6 +168,7 @@ class ControlWidget(SigSlot):
         kwargs = self.style.kwargs
         kwargs.update({k: v for k, v in self.fields.kwargs.items()
                        if v is not None})
+        kwargs.update(self.sample.kwargs)
         return kwargs
 
 
@@ -294,6 +296,8 @@ class SamplePane(SigSlot):
             op.append('Partition')
         self.how = pn.widgets.Select(options=op, name='How')
         self.par = pn.widgets.Select()
+        self.rasterize = pn.widgets.Checkbox(name='rasterize')
+        self.persist = pn.widgets.Checkbox(name='persist')
         self.make_sample_pars('Random')
 
         self._register(self.sample, 'sample_toggled')
@@ -307,11 +311,31 @@ class SamplePane(SigSlot):
         # set default value
         self.sample.value = npartitions > 1
 
-        self.panel = pn.Row(self.sample, self.how, self.par, name='Control')
+        self.panel = pn.Column(
+            pn.Row(self.sample, self.how, self.par),
+            pn.Row(self.rasterize, self.persist),
+            name='Control'
+        )
+
+    def sample_data(self, data):
+        if self.sample.value is False:
+            return data
+        if self.how.value == 'Head':
+            return data.head(self.par.value)
+        if self.how.value == 'Tail':
+            return data.tail(self.par.value)
+        if self.how.value == 'Partition':
+            return data.get_partition(self.par.value)
+        if self.how.value == 'Random':
+            return data.sample(fraction=self.par.value / 100)
+
+    @property
+    def kwargs(self):
+        return {w.name: w.value for w in [self.rasterize, self.persist]}
 
     def make_sample_pars(self, manner):
         opts = {'Random': ('percent', [10, 1, 0.1]),
-                'Partition': ('#', list(range(self.npartitions))),
+                'Partition': list(range(self.npartitions)),
                 'Head': ('rows', [10, 100, 1000, 10000]),
                 'Tail': ('rows', [10, 100, 1000, 10000])}[manner]
         self.par.name = opts[0]
