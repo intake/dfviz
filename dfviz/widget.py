@@ -1,109 +1,14 @@
-import yaml
+import logging
 from bokeh import palettes
+import pandas as pd
 import panel as pn
 from hvplot import hvPlot
+from .sigslot import SigSlot
+from .utils import pretty_describe
+from .fields import *
 
-plot_requires = {
-    'area': ['multi_y'],
-    'bar': ['multi_y'],
-    'box': ['multi_y'],
-    'bivariate': ['x', 'y'],
-    'heatmap': ['x', 'y', 'C'],
-    'hexbin': ['x', 'y'],
-    'hist': ['multi_y'],
-    'line': ['multi_y', 'x'],
-    'kde': ['multi_y'],
-    'scatter': ['y'],
-    'table': ['columns'],
-    'violin': ['y']
-}
-plot_allows = {
-    'area': ['x', 'stacked', 'logy'],
-    'bar': ['x', 'by', 'groupby', 'stacked', 'logy'],
-    'box': ['by', 'invert'],
-    'bivariate': ['colorbar'],
-    'heatmap': ['colorbar'],
-    'hexbin': ['colorbar'],
-    'hist': ['by', 'bins'],
-    'kde': ['by'],
-    'line': ['logx', 'logy'],
-    'scatter': ['x', 'color', 'marker', 'colorbar', 'cmap', 'size', 'logx',
-                'logy'],
-    'table': [],
-    'violin': ['by', 'groupby']
-}
-all_names = set(sum(plot_allows.values(), []))
-field_names = {'x', 'y', 'C', 'color', 'multi_y', 'by', 'groupby', 'columns',
-               'size'}
-option_names = [n for n in all_names if n not in field_names] + [
-    'color', 'alpha', 'legend', 'size']
-
-
-class SigSlot(object):
-    """Signal-slot mixin, for Panel event passing"""
-
-    def __init__(self):
-        self._sigs = {}
-        self._map = {}
-
-    def _register(self, widget, name, thing='value'):
-        """Watch the given attribute of a widget and assign it a named event
-
-        This is normally called at the time a widget is instantiated, in the
-        class which owns it.
-
-        Parameters
-        ----------
-        widget : pn.layout.Panel or None
-            Widget to watch. If None, an anonymous signal not associated with
-            any widget.
-        name : str
-            Name of this event
-        thing : str
-            Attribute of the given widget to watch
-        """
-        self._sigs[name] = {'widget': widget, 'callbacks': [], 'thing': thing}
-        wn = "-".join([widget.name if widget is not None else "none", thing])
-        self._map[wn] = name
-        if widget is not None:
-            widget.param.watch(self._signal, thing, onlychanged=True)
-
-    @property
-    def signals(self):
-        """Known named signals of this class"""
-        return list(self._sigs)
-
-    def connect(self, name, callback):
-        """Associate call back with given event
-
-        The callback must be a function which takes the "new" value of the
-        watched attribute as the only parameter. If the callback return False,
-        this cancels any further processing of the given event.
-        """
-        self._sigs[name]['callbacks'].append(callback)
-
-    def _signal(self, event):
-        """This is called by a an action on a widget
-
-        Tests can execute this method by directly changing the values of
-        widget components.
-        """
-        wn = "-".join([event.obj.name, event.name])
-        if wn in self._map and self._map[wn] in self._sigs:
-            self._emit(self._map[wn], event.new)
-
-    def _emit(self, sig, value=None):
-        """An event happened, call its callbacks
-
-        This method can be used in tests to simulate message passing without
-        directly changing visual elements.
-        """
-        for callback in self._sigs[sig]['callbacks']:
-            if callback(value) is False:
-                break
-
-    def show(self):
-        self.panel.show()
+logger = logging.getLogger('dfviz')
+logger.setLevel('DEBUG')
 
 
 class MainWidget(SigSlot):
@@ -136,11 +41,11 @@ class MainWidget(SigSlot):
         self.kwtext.object = pretty_describe(kwargs)
         data = self.control.sample.sample_data(self.data)
         self._plot = hvPlot(data)(**kwargs)
-        self.output[0] = pn.pane.HoloViews(self._plot, name='Plot')
-        fig = list(self.output[0]._models.values())[0][0]
+        self.output[0] = pn.Row(*pn.pane.HoloViews(self._plot), name='Plot')
+        fig = list(self.output[0][0]._models.values())[0][0]
         xrange = fig.x_range.start, fig.x_range.end
         yrange = fig.y_range.start, fig.y_range.end
-        self.control.style.set_ranges(xrange, yrange)
+        self.control.set_ranges(xrange, yrange)
 
 
 class ControlWidget(SigSlot):
@@ -152,16 +57,36 @@ class ControlWidget(SigSlot):
 
         self.sample = SamplePane(npartitions)
         self.fields = FieldsPane(columns=list(df.columns))
-        # self.options = OptionsPane()
         self.style = StylePane()
         self.panel = pn.Tabs(self.sample.panel, self.fields.panel,
                              self.style.panel,
                              background=(230, 230, 230))
-        self.set_method('bar')
+        self._register(self.panel, 'tab_changed', 'active')
+        self.connect('tab_changed', self.maybe_disable_axes)
+        self.old_fields = {}
+        self.old_sample = {}
+        self.set_method('area')
+
+    def maybe_disable_axes(self, tab):
+        # tab activated - if kwargs changed, disable ranges
+        if self.panel[tab] is self.style:
+            if (self.sample.kwargs != self.old_sample
+                    or self.fields.kwargs != self.old_fields):
+                self.style.disable_axes()
+
+    def set_ranges(self, xrange, yrange):
+        # new plot - if kwargs changed since last plot, update ranges;
+        # they should be enabled if they end up with a real range
+        if (self.sample.kwargs != self.old_sample
+                or self.fields.kwargs != self.old_fields):
+            self.style.set_ranges(xrange, yrange)
+        self.old_sample = self.sample.kwargs
+        self.old_fields = self.fields.kwargs
 
     def set_method(self, method):
         self.fields.setup(method)
         self.style.setup(method)
+        self.set_ranges(None, None)
 
     @property
     def kwargs(self):
@@ -219,27 +144,36 @@ class StylePane(SigSlot):
             pn.widgets.IntSlider(name='width', value=600, start=100, end=1200),
             pn.widgets.IntSlider(name='height', value=400, start=100, end=1200)
         )
+        self.axes = [
+            pn.widgets.FloatSlider(name=n, start=0, end=1, disabled=True)
+            for n in ['x min', 'x max', 'y min', 'y max']
+        ]
+        self.panel[1].extend(self.axes)
+        self.xrange, self.yrange = None, None
+
+    def disable_axes(self):
+        for ax in self.axes:
+            ax.disabled = True
 
     def set_ranges(self, xrange=None, yrange=None):
-        while True:
-            try:
-                self.panel[1].pop(2)
-            except IndexError:
-                break
+        ax1, ax2 = self.axes[:2]
         if xrange and xrange[0] is not None and xrange[1] is not None:
-            self.panel[1].append(
-                pn.widgets.FloatSlider(name='x min', start=xrange[0],
-                                       end=xrange[1], value=xrange[0]))
-            self.panel[1].append(
-                pn.widgets.FloatSlider(name='x max', start=xrange[0],
-                                       end=xrange[1], value=xrange[1]))
+            ax1.start = ax2.start = ax1.value = xrange[0]
+            ax1.end = ax2.end = ax2.value = xrange[1]
+            ax1.disabled = False
+            ax2.disabled = False
+        else:
+            ax1.disabled = True
+            ax2.disabled = True
+        ax1, ax2 = self.axes[2:]
         if yrange and yrange[0] is not None and yrange[1] is not None:
-            self.panel[1].append(
-                pn.widgets.FloatSlider(name='y min', start=yrange[0],
-                                       end=yrange[1], value=yrange[0]))
-            self.panel[1].append(
-                pn.widgets.FloatSlider(name='y max', start=yrange[0],
-                                       end=yrange[1], value=yrange[1]))
+            ax1.start = ax2.start = ax1.value = yrange[0]
+            ax1.end = ax2.end = ax2.value = yrange[1]
+            ax1.disabled = False
+            ax2.disabled = False
+        else:
+            ax1.disabled = True
+            ax2.disabled = True
 
     @property
     def kwargs(self):
@@ -248,6 +182,8 @@ class StylePane(SigSlot):
         xlim = [None, None]
         ylim = [None, None]
         for w in self.panel[1][2:]:
+            if w.disabled:
+                continue
             if 'x ' in w.name:
                 xlim['max' in w.name] = float(w.value)
                 kw['xlim'] = tuple(xlim)
@@ -290,7 +226,7 @@ class SamplePane(SigSlot):
         super().__init__()
         self.npartitions = npartitions
 
-        self.sample = pn.widgets.Checkbox(name='Sample', value=True)
+        self.sample = pn.widgets.Checkbox(name='Sample', value=False)
         op = ['Random', 'Head', 'Tail']
         if npartitions > 1:
             op.append('Partition')
@@ -298,7 +234,7 @@ class SamplePane(SigSlot):
         self.par = pn.widgets.Select()
         self.rasterize = pn.widgets.Checkbox(name='rasterize')
         self.persist = pn.widgets.Checkbox(name='persist')
-        self.make_sample_pars('Random')
+        self.make_sample_pars('Head')
 
         self._register(self.sample, 'sample_toggled')
         self._register(self.how, 'how_chosen')
@@ -319,6 +255,7 @@ class SamplePane(SigSlot):
         )
 
     def sample_data(self, data):
+        # TODO: keep sampled data and don't remake until parameters change
         if self.sample.value is False:
             return data
         if self.how.value == 'Head':
@@ -328,7 +265,12 @@ class SamplePane(SigSlot):
         if self.how.value == 'Partition':
             return data.get_partition(self.par.value)
         if self.how.value == 'Random':
-            return data.sample(frac=self.par.value / 100)
+            df = data.sample(frac=self.par.value / 100)
+            if hasattr(df, 'npartitions'):
+                df = df.map_partitions(pd.DataFrame.sort_index)
+            else:
+                df.sort_index(inplace=True)
+            return df
 
     @property
     def kwargs(self):
@@ -341,30 +283,3 @@ class SamplePane(SigSlot):
                 'Tail': ('rows', [10, 100, 1000, 10000])}[manner]
         self.par.name = opts[0]
         self.par.options = opts[1]
-
-
-def pretty_describe(object, nestedness=0, indent=2):
-    """Maintain dict ordering - but make string version prettier"""
-    if not isinstance(object, dict):
-        return str(object)
-    sep = f'\n{" " * nestedness * indent}'
-    out = sep.join((f'{k}: {pretty_describe(v, nestedness + 1)}' for k, v in object.items()))
-    if nestedness > 0 and out:
-        return f'{sep}{out}'
-    return out
-
-
-if __name__ == '__main__':
-    import pandas as pd
-    import dask.dataframe as dd
-    import numpy as np
-    N = 1000
-    df = pd.DataFrame({
-        'a': range(N),
-        'b': np.random.rand(N),
-        'c': np.random.randn(N),
-        'd': np.random.choice(['A', 'B', 'C'], size=N)
-    })
-    #widget = MainWidget(df)
-    widget = MainWidget(dd.from_pandas(df, 2))
-    widget.show()

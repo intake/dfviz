@@ -1,2 +1,4 @@
 panel
 hvplot
+pandas
+bokeh
