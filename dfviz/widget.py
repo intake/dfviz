@@ -4,7 +4,7 @@ import pandas as pd
 import panel as pn
 from hvplot import hvPlot
 from .sigslot import SigSlot
-from .utils import pretty_describe
+from .utils import pretty_describe, logger
 from .fields import *
 
 logger = logging.getLogger('dfviz')
@@ -63,37 +63,39 @@ class ControlWidget(SigSlot):
                              background=(230, 230, 230))
         self._register(self.panel, 'tab_changed', 'active')
         self.connect('tab_changed', self.maybe_disable_axes)
-        self.old_fields = {}
-        self.old_sample = {}
+        self.previous_kwargs = {}
         self.set_method('area')
 
     def maybe_disable_axes(self, tab):
         # tab activated - if kwargs changed, disable ranges
-        if self.panel[tab] is self.style:
-            if (self.sample.kwargs != self.old_sample
-                    or self.fields.kwargs != self.old_fields):
+        if self.panel[tab] is self.style.panel:
+            if self.fields_kwargs != self.previous_kwargs:
                 self.style.disable_axes()
 
     def set_ranges(self, xrange, yrange):
         # new plot - if kwargs changed since last plot, update ranges;
         # they should be enabled if they end up with a real range
-        if (self.sample.kwargs != self.old_sample
-                or self.fields.kwargs != self.old_fields):
+        if self.fields_kwargs != self.previous_kwargs:
             self.style.set_ranges(xrange, yrange)
-        self.old_sample = self.sample.kwargs
-        self.old_fields = self.fields.kwargs
+            self.previous_kwargs = self.fields_kwargs
 
     def set_method(self, method):
+        self.method = method
         self.fields.setup(method)
         self.style.setup(method)
         self.set_ranges(None, None)
 
     @property
+    def fields_kwargs(self):
+        fields_kwargs = {k: v for k, v in self.fields.kwargs.items()
+                         if v is not None}
+        fields_kwargs.update(self.sample.kwargs)
+        return fields_kwargs
+
+    @property
     def kwargs(self):
         kwargs = self.style.kwargs
-        kwargs.update({k: v for k, v in self.fields.kwargs.items()
-                       if v is not None})
-        kwargs.update(self.sample.kwargs)
+        kwargs.update(self.fields_kwargs)
         return kwargs
 
 
@@ -154,6 +156,7 @@ class StylePane(SigSlot):
     def disable_axes(self):
         for ax in self.axes:
             ax.disabled = True
+            ax.start = ax.value = ax.end = 0
 
     def set_ranges(self, xrange=None, yrange=None):
         ax1, ax2 = self.axes[:2]

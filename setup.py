@@ -9,7 +9,7 @@ requires = open('requirements.txt').read().strip().split('\n')
 setup(
     name='dfviz',
     version='0',
-    description='dataframe viz',
+    description='dataframe interactive visualisation interface',
     url='',
     maintainer='Martin Durant',
     maintainer_email='mdurant@anaconda.com',

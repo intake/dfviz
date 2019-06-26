@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger('dfviz')
+logger.setLevel('DEBUG')
 
 
 def pretty_describe(object, nestedness=0, indent=2):
