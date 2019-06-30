@@ -1,7 +1,7 @@
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
-from .widget import MainWidget
+from dfviz.widget import MainWidget
 
 
 def run_example():
