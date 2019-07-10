@@ -12,8 +12,24 @@ logger.setLevel('DEBUG')
 
 
 class MainWidget(SigSlot):
+    """dfviz main interface, interactive plotting of dataframes
+
+    This is designed to be viewed in a notebook or stand-alone web application.
+
+    Parameters
+    ----------
+    data : dataframe
+        Dask or pandas dataframe to be plotted
+
+    Examples
+    --------
+    wid = MainWidget(df)
+    wid.show()  # opens up new browser tab
+    wid.panel   # in a notebook, will display interface in cell output
+    """
 
     def __init__(self, data):
+        # TODO: input kwargs to set widgets' initial state
         super().__init__()
         self.data = data
         self.dasky = hasattr(data, 'dask')
@@ -36,6 +52,10 @@ class MainWidget(SigSlot):
         self.panel = pn.Column(plotcont, self.control.panel, self.output)
 
     def draw(self, *args):
+        """Recreate the plot with current arguments
+
+        Called by "Plot" button
+        """
         kwargs = self.control.kwargs
         kwargs['kind'] = self.method.value
         self.kwtext.object = pretty_describe(kwargs)
@@ -43,12 +63,17 @@ class MainWidget(SigSlot):
         self._plot = hvPlot(data)(**kwargs)
         self.output[0] = pn.Row(*pn.pane.HoloViews(self._plot), name='Plot')
         fig = list(self.output[0][0]._models.values())[0][0]
-        xrange = fig.x_range.start, fig.x_range.end
-        yrange = fig.y_range.start, fig.y_range.end
-        self.control.set_ranges(xrange, yrange)
+        try:
+            xrange = fig.x_range.start, fig.x_range.end
+            yrange = fig.y_range.start, fig.y_range.end
+            self.control.set_ranges(xrange, yrange)
+        except AttributeError:
+            # some plots (e.g., Table) don't have ranges
+            pass
 
 
 class ControlWidget(SigSlot):
+    """Set of tabs controlling data and style options"""
 
     def __init__(self, df):
         super().__init__()
@@ -67,12 +92,14 @@ class ControlWidget(SigSlot):
         self.set_method('area')
 
     def maybe_disable_axes(self, tab):
+        """When the style tab is selected, the calculated axes may be invalid"""
         # tab activated - if kwargs changed, disable ranges
         if self.panel[tab] is self.style.panel:
             if self.fields_kwargs != self.previous_kwargs:
                 self.style.disable_axes()
 
     def set_ranges(self, xrange, yrange):
+        """New plot ranges are available, so set the corresponding widgets"""
         # new plot - if kwargs changed since last plot, update ranges;
         # they should be enabled if they end up with a real range
         if self.fields_kwargs != self.previous_kwargs:
@@ -80,6 +107,7 @@ class ControlWidget(SigSlot):
             self.previous_kwargs = self.fields_kwargs
 
     def set_method(self, method):
+        """A new plot type was selected, so reset fields and style tabs"""
         self.method = method
         self.fields.setup(method)
         self.style.setup(method)
@@ -100,6 +128,11 @@ class ControlWidget(SigSlot):
 
 
 def make_option_widget(name, columns=[], optional=False, style=False):
+    """Create a panel object for the names keyword argument
+
+    The arguments are all options to pass to hvplot(), and may have
+    correspondingly named widgets somewhere in the interface.
+    """
     if name in ['multi_y', 'columns']:
         if name == 'multi_y':
             name = 'y'
@@ -133,11 +166,13 @@ def make_option_widget(name, columns=[], optional=False, style=False):
 
 
 class StylePane(SigSlot):
+    """Options specific to "how" to plot"""
 
     def __init__(self):
         self.panel = pn.Row(pn.Spacer(), pn.Spacer(), name='Style')
 
     def setup(self, method):
+        """Find set of options relevant to given plot type and make widgets"""
         allowed = ['alpha', 'legend'] + plot_allows[method]
         ws = [make_option_widget(nreq, style=True) for nreq in allowed
               if nreq in option_names]
@@ -154,11 +189,17 @@ class StylePane(SigSlot):
         self.xrange, self.yrange = None, None
 
     def disable_axes(self):
+        """Axes are invalid, so make them unselectable"""
         for ax in self.axes:
             ax.disabled = True
             ax.start = ax.value = ax.end = 0
 
     def set_ranges(self, xrange=None, yrange=None):
+        """Axes ranges were calculated, so remake the range widgets
+
+        Note either of the ranges can be None, e.g., for categorical axes,
+        in which case we clear and disable the corresponding widgets.
+        """
         ax1, ax2 = self.axes[:2]
         if xrange and xrange[0] is not None and xrange[1] is not None:
             ax1.start = ax2.start = ax1.value = xrange[0]
@@ -197,6 +238,7 @@ class StylePane(SigSlot):
 
 
 class FieldsPane(SigSlot):
+    """Select which columns of the data get used for which roles in plotting"""
 
     def __init__(self, columns):
         super().__init__()
@@ -204,6 +246,7 @@ class FieldsPane(SigSlot):
         self.panel = pn.Column(name='Fields')
 
     def setup(self, method='bar'):
+        """Display field selector appropriate for the given plot type"""
         self.panel.clear()
         for req in plot_requires[method]:
             if req in field_names:
@@ -224,6 +267,7 @@ class FieldsPane(SigSlot):
 
 
 class SamplePane(SigSlot):
+    """Global data selection options"""
 
     def __init__(self, npartitions):
         super().__init__()
@@ -258,6 +302,7 @@ class SamplePane(SigSlot):
         )
 
     def sample_data(self, data):
+        """Execute sampling selection on th data"""
         # TODO: keep sampled data and don't remake until parameters change
         if self.sample.value is False:
             return data

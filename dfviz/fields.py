@@ -1,3 +1,8 @@
+"""
+Definitions of required and optional parameters for many hvplot
+plot types.
+"""
+
 
 plot_requires = {
     'area': ['multi_y'],

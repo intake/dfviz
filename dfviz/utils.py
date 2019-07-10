@@ -4,7 +4,10 @@ logger.setLevel('DEBUG')
 
 
 def pretty_describe(object, nestedness=0, indent=2):
-    """Maintain dict ordering - but make string version prettier"""
+    """Nice YAML-like text version of given dict/object
+
+    Maintains dict ordering
+    """
     if not isinstance(object, dict):
         return str(object)
     sep = f'\n{" " * nestedness * indent}'

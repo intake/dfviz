@@ -68,6 +68,8 @@ class SigSlot(object):
     def _signal(self, event):
         """This is called by a an action on a widget
 
+        Within an self.ignore_events context, nothing happens.
+
         Tests can execute this method by directly changing the values of
         widget components.
         """
@@ -90,6 +92,8 @@ class SigSlot(object):
 
         This method can be used in tests to simulate message passing without
         directly changing visual elements.
+
+        Calling of callbacks will halt whenever one returns False.
         """
         logger.log(self._sigs[sig]['log'], f"{sig}: {value}")
         for callback in self._sigs[sig]['callbacks']:
@@ -97,5 +101,6 @@ class SigSlot(object):
                 break
 
     def show(self):
+        """Open a new browser tab and display this instance's interface"""
         self.panel.show()
 
