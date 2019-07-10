@@ -1,2 +1,7 @@
 include versioneer.py
 include dfviz/_version.py
+include setup.py
+include README.md
+include LICENSE
+include MANIFEST.in
+include requirements.txt

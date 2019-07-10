@@ -8,7 +8,6 @@ $ python -c "import dfviz; dfviz.run_example()"
 from anywhere, if dfviz has been installed.
 """
 
-import dask.dataframe as dd
 import numpy as np
 import pandas as pd
 from dfviz import DFViz
@@ -27,6 +26,10 @@ def run_example(show=True):
     A dfviz.DFViz instance. To display, you can use widget.show() or
     allow widget.panel to be rendered in a notebook.
     """
+    try:
+        import dask.dataframe as dd
+    except ImportError:
+        dd = False
     N = 1000
     df = pd.DataFrame({
         'a': range(N),
@@ -34,8 +37,9 @@ def run_example(show=True):
         'c': np.random.randn(N),
         'd': np.random.choice(['A', 'B', 'C'], size=N)
     })
-    # widget = MainWidget(df)
-    wid = DFViz(dd.from_pandas(df, 2))
+    if dd:
+        df = dd.from_pandas(df, 2)
+    wid = DFViz(df)
     if show:
         try:
             wid.show()
