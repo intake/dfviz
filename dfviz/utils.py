@@ -1,6 +1,5 @@
 import logging
 logger = logging.getLogger('dfviz')
-logger.setLevel('DEBUG')
 
 
 def pretty_describe(object, nestedness=0, indent=2):
@@ -10,9 +9,9 @@ def pretty_describe(object, nestedness=0, indent=2):
     """
     if not isinstance(object, dict):
         return str(object)
-    sep = f'\n{" " * nestedness * indent}'
-    out = sep.join((f'{k}: {pretty_describe(v, nestedness + 1)}'
+    sep = '\n{}'.format(" " * nestedness * indent)
+    out = sep.join(('{}: {}'.format(k, pretty_describe(v, nestedness + 1))
                     for k, v in object.items()))
     if nestedness > 0 and out:
-        return f'{sep}{out}'
+        return '{sep}{out}'.format(sep=sep, format=format)
     return out

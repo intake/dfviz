@@ -10,6 +10,8 @@ class SigSlot(object):
 
     The method ``_register`` should be called as widgets are added, and external
     code should call ``connect`` to associate callbacks.
+
+    By default, all signals emit a DEBUG logging statement.
     """
 
     def __init__(self):
@@ -28,7 +30,7 @@ class SigSlot(object):
         wn = [k for k, v in self._map.items() if v == name][0]
         del self._map[wn]
 
-    def _register(self, widget, name, thing='value'):
+    def _register(self, widget, name, thing='value', log_level=logging.DEBUG):
         """Watch the given attribute of a widget and assign it a named event
 
         This is normally called at the time a widget is instantiated, in the
@@ -43,9 +45,12 @@ class SigSlot(object):
             Name of this event
         thing : str
             Attribute of the given widget to watch
+        log_level : int
+            When the signal is triggered, a logging event of the given level
+            will be fired in the dfviz logger.
         """
         self._sigs[name] = {'widget': widget, 'callbacks': [], 'thing': thing,
-                            'log': logging.DEBUG}
+                            'log': log_level}
         wn = "-".join([widget.name if widget is not None else "none", thing])
         self._map[wn] = name
         if widget is not None:
@@ -95,7 +100,7 @@ class SigSlot(object):
 
         Calling of callbacks will halt whenever one returns False.
         """
-        logger.log(self._sigs[sig]['log'], f"{sig}: {value}")
+        logger.log(self._sigs[sig]['log'], "{}: {}".format(sig, value))
         for callback in self._sigs[sig]['callbacks']:
             if callback(value) is False:
                 break

@@ -1,4 +1,3 @@
-import logging
 from bokeh import palettes
 import pandas as pd
 import panel as pn
@@ -6,9 +5,6 @@ from hvplot import hvPlot
 from .sigslot import SigSlot
 from .utils import pretty_describe, logger
 from .fields import *
-
-logger = logging.getLogger('dfviz')
-logger.setLevel('DEBUG')
 
 
 class MainWidget(SigSlot):
@@ -34,7 +30,7 @@ class MainWidget(SigSlot):
         self.data = data
         self.dasky = hasattr(data, 'dask')
         self.control = ControlWidget(self.data)
-        self.kwtext = pn.pane.Str(name='YAML', value="")
+        self.kwtext = pn.pane.Str(name='YAML')
         self.output = pn.Tabs(pn.Spacer(name='Plot'), self.kwtext)
 
         self.method = pn.widgets.Select(
