@@ -108,4 +108,3 @@ class SigSlot(object):
     def show(self):
         """Open a new browser tab and display this instance's interface"""
         self.panel.show()
-

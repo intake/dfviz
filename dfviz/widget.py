@@ -3,7 +3,7 @@ import pandas as pd
 import panel as pn
 from hvplot import hvPlot
 from .sigslot import SigSlot
-from .utils import pretty_describe, logger
+from .utils import pretty_describe
 from .fields import *
 
 
@@ -16,6 +16,11 @@ class MainWidget(SigSlot):
     ----------
     data : dataframe
         Dask or pandas dataframe to be plotted
+    kwargs : values to pre-populate the options.
+        These have the same names as the labels of the widgets in most cases;
+        where the same name appears in both Fields and Style panes, the value
+        will be assigned to the Fields version if the it is equal the value of
+        a column(s) in the data.
 
     Examples
     --------
@@ -24,17 +29,19 @@ class MainWidget(SigSlot):
     wid.panel   # in a notebook, will display interface in cell output
     """
 
-    def __init__(self, data):
+    def __init__(self, data, **kwargs):
         # TODO: input kwargs to set widgets' initial state
         super().__init__()
         self.data = data
         self.dasky = hasattr(data, 'dask')
-        self.control = ControlWidget(self.data)
+        self.control = ControlWidget(self.data, **kwargs)
         self.kwtext = pn.pane.Str(name='YAML')
         self.output = pn.Tabs(pn.Spacer(name='Plot'), self.kwtext)
 
         self.method = pn.widgets.Select(
-            name='Plot Type', options=list(plot_requires))
+            name='Plot Type', options=list(plot_requires),
+            value=kwargs.get('kind', 'area')
+        )
         self.plot = pn.widgets.Button(name='Plot')
         plotcont = pn.Row(self.method, self.plot,
                           pn.layout.HSpacer())
@@ -71,7 +78,7 @@ class MainWidget(SigSlot):
 class ControlWidget(SigSlot):
     """Set of tabs controlling data and style options"""
 
-    def __init__(self, df):
+    def __init__(self, df, **kwargs):
         super().__init__()
         npartitions = getattr(df, 'npartitions', 1)
         self.autoplot = False
@@ -85,7 +92,12 @@ class ControlWidget(SigSlot):
         self._register(self.panel, 'tab_changed', 'active')
         self.connect('tab_changed', self.maybe_disable_axes)
         self.previous_kwargs = {}
-        self.set_method('area')
+        self.start_kwargs = kwargs
+        self.set_method(kwargs.get('kind', 'area'))
+
+        if 'xlim' in kwargs or 'ylim' in kwargs:
+            self.set_ranges(kwargs.get('xlim', None),
+                            kwargs.get('ylim', None))
 
     def maybe_disable_axes(self, tab):
         """When the style tab is selected, the calculated axes may be invalid"""
@@ -102,12 +114,15 @@ class ControlWidget(SigSlot):
             self.style.set_ranges(xrange, yrange)
             self.previous_kwargs = self.fields_kwargs
 
-    def set_method(self, method):
+    def set_method(self, method, kwargs=None):
         """A new plot type was selected, so reset fields and style tabs"""
         self.method = method
-        self.fields.setup(method)
-        self.style.setup(method)
-        self.set_ranges(None, None)
+        kwargs = kwargs if kwargs is not None else self.start_kwargs
+        # self.set_ranges(None, None)
+        self.fields.setup(method, kwargs)
+        self.style.setup(method, kwargs)
+        self.sample.setup(kwargs)
+        self.start_kwargs = {}  # only on the first call
 
     @property
     def fields_kwargs(self):
@@ -167,7 +182,7 @@ class StylePane(SigSlot):
     def __init__(self):
         self.panel = pn.Row(pn.Spacer(), pn.Spacer(), name='Style')
 
-    def setup(self, method):
+    def setup(self, method, kwargs={}):
         """Find set of options relevant to given plot type and make widgets"""
         allowed = ['alpha', 'legend'] + plot_allows[method]
         ws = [make_option_widget(nreq, style=True) for nreq in allowed
@@ -183,6 +198,10 @@ class StylePane(SigSlot):
         ]
         self.panel[1].extend(self.axes)
         self.xrange, self.yrange = None, None
+        if kwargs:
+            for wid in list(self.panel[0]) + list(self.panel[1][:2]):
+                if wid.name in kwargs:
+                    wid.value = kwargs[wid.name]
 
     def disable_axes(self):
         """Axes are invalid, so make them unselectable"""
@@ -241,17 +260,20 @@ class FieldsPane(SigSlot):
         self.columns = columns
         self.panel = pn.Column(name='Fields')
 
-    def setup(self, method='bar'):
+    def setup(self, method='bar', kwargs={}):
         """Display field selector appropriate for the given plot type"""
         self.panel.clear()
-        for req in plot_requires[method]:
-            if req in field_names:
-                w = make_option_widget(req, self.columns)
-                self.panel.append(w)
-        for nreq in plot_allows[method]:
+        for nreq in plot_requires[method] + plot_allows[method]:
+            opt = nreq not in plot_requires[method]
             if nreq in field_names:
-                w = make_option_widget(nreq, self.columns, True)
+                w = make_option_widget(nreq, self.columns, opt)
                 self.panel.append(w)
+                if nreq in kwargs:
+                    setval = kwargs[nreq] in self.columns
+                    setval += (isinstance(kwargs[nreq], list) and
+                               set(kwargs[nreq]).issubset(set(self.columns)))
+                    if setval:
+                        w.value = kwargs.pop(nreq)
 
     @property
     def kwargs(self):
@@ -273,8 +295,8 @@ class SamplePane(SigSlot):
         op = ['Random', 'Head', 'Tail']
         if npartitions > 1:
             op.append('Partition')
-        self.how = pn.widgets.Select(options=op, name='How')
-        self.par = pn.widgets.Select()
+        self.how = pn.widgets.Select(options=op, name='SampleMethod')
+        self.par = pn.widgets.Select(name='SamplePar')
         self.rasterize = pn.widgets.Checkbox(name='rasterize')
         self.persist = pn.widgets.Checkbox(name='persist')
         self.make_sample_pars('Head')
@@ -296,6 +318,12 @@ class SamplePane(SigSlot):
             pn.Row(self.rasterize, self.persist),
             name='Control'
         )
+
+    def setup(self, kwargs):
+        for wid in [self.sample, self.how, self.par, self.rasterize,
+                    self.persist]:
+            if wid.name in kwargs:
+                wid.value = kwargs[wid.name]
 
     def sample_data(self, data):
         """Execute sampling selection on th data"""

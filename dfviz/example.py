@@ -39,7 +39,23 @@ def run_example(show=True):
     })
     if dd:
         df = dd.from_pandas(df, 2)
-    wid = DFViz(df)
+    kwargs = {
+        'alpha': 0.7,
+        'color': 'a',
+        'marker': 's',
+        'colorbar': True,
+        'cmap': 'Viridis',
+        'size': 55,
+        'width': 600,
+        'height': 600,
+        'xlim': (0, 1000.0),
+        'ylim': (-2, 2),
+        'y': 'c',
+        'x': 'a',
+        'kind': 'scatter',
+        'Sample': False
+    }
+    wid = DFViz(df, **kwargs)
     if show:
         try:
             wid.show()
