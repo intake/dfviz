@@ -98,12 +98,17 @@ class ControlWidget(SigSlot):
         if 'xlim' in kwargs or 'ylim' in kwargs:
             self.set_ranges(kwargs.get('xlim', None),
                             kwargs.get('ylim', None))
+        self.fields.connect("changed",
+                            lambda _: self.maybe_disable_axes(None, True))
 
-    def maybe_disable_axes(self, tab):
-        """When the style tab is selected, the calculated axes may be invalid"""
+    def maybe_disable_axes(self, tab, force=False):
+        """When the style tab is selected, the calculated axes may be invalid
+
+        If ``force`` is True, the axes vales are always invalidated.
+        """
         # tab activated - if kwargs changed, disable ranges
-        if self.panel[tab] is self.style.panel:
-            if self.fields_kwargs != self.previous_kwargs:
+        if force or self.panel[tab] is self.style.panel:
+            if force or self.fields_kwargs != self.previous_kwargs:
                 self.style.disable_axes()
 
     def set_ranges(self, xrange, yrange):
@@ -259,15 +264,25 @@ class FieldsPane(SigSlot):
         super().__init__()
         self.columns = columns
         self.panel = pn.Column(name='Fields')
+        self._register(None, "changed")
 
     def setup(self, method='bar', kwargs={}):
         """Display field selector appropriate for the given plot type"""
+        for sig in set(self.signals) - {'changed'}:
+            self._deregister(sig)
         self.panel.clear()
         for nreq in plot_requires[method] + plot_allows[method]:
             opt = nreq not in plot_requires[method]
             if nreq in field_names:
                 w = make_option_widget(nreq, self.columns, opt)
+                self._register(w, w.name)
+                self.connect(w.name, "changed")
                 self.panel.append(w)
+                if nreq == 'multi_y' and w.name == 'y':
+                    val = kwargs.pop('y')
+                    if isinstance(val, str):
+                        val = val
+                    w.value = val
                 if nreq in kwargs:
                     setval = kwargs[nreq] in self.columns
                     setval += (isinstance(kwargs[nreq], list) and

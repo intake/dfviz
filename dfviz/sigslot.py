@@ -67,6 +67,9 @@ class SigSlot(object):
         The callback must be a function which takes the "new" value of the
         watched attribute as the only parameter. If the callback return False,
         this cancels any further processing of the given event.
+
+        Alternatively, the callback can be a string, in which case it means
+        emitting the correspondingly-named event.
         """
         self._sigs[name]['callbacks'].append(callback)
 
@@ -102,7 +105,9 @@ class SigSlot(object):
         """
         logger.log(self._sigs[sig]['log'], "{}: {}".format(sig, value))
         for callback in self._sigs[sig]['callbacks']:
-            if callback(value) is False:
+            if isinstance(callback, str):
+                self._emit(callback)
+            elif callback(value) is False:
                 break
 
     def show(self):
