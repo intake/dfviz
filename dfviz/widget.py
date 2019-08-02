@@ -278,7 +278,7 @@ class FieldsPane(SigSlot):
                 self._register(w, w.name)
                 self.connect(w.name, "changed")
                 self.panel.append(w)
-                if nreq == 'multi_y' and w.name == 'y':
+                if nreq == 'multi_y' and w.name == 'y' and 'y' in kwargs:
                     val = kwargs.pop('y')
                     if isinstance(val, str):
                         val = val
